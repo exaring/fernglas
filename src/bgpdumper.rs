@@ -40,7 +40,7 @@ impl BgpDumper {
     }
     pub async fn start_active(&mut self) -> Result<BgpOpenMessage, BgpError> {
         let mut bom = self.params.open_message();
-        let mut buf = [255 as u8; 4096];
+        let mut buf = [255u8; 4096];
         let messagelen = match bom.encode_to(&self.params, &mut buf[19..]) {
             Err(e) => {
                 return Err(e);
@@ -58,7 +58,7 @@ impl BgpDumper {
         bom.decode_from(&self.params, &buf[..])?;
         debug!("{:?}", bom);
         self.params.hold_time = bom.hold_time;
-        self.params.caps = bom.caps.clone();
+        self.params.caps.clone_from(&bom.caps);
         self.params.check_caps();
         Ok(bom)
     }
@@ -67,8 +67,8 @@ impl BgpDumper {
         let slp = std::time::Duration::new((self.params.hold_time / 3) as u64, 0);
         let write = self.write.clone();
         tokio::task::spawn(async move {
-            let mut buf = [255 as u8; 19];
-            buf[0..16].clone_from_slice(&[255 as u8; 16]);
+            let mut buf = [255u8; 19];
+            buf[0..16].clone_from_slice(&[255u8; 16]);
             buf[16] = 0;
             buf[17] = 19;
             buf[18] = 4; //keepalive

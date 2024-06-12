@@ -27,10 +27,10 @@ impl NodeExt for Node<IpNet, Vec<(PathId, Arc<CompressedRouteAttrs>)>> {
             dyn Iterator<Item = (IpNet, &Vec<(PathId, Arc<CompressedRouteAttrs>)>)> + Send + '_,
         > = match net_query {
             None => Box::new(self.iter()),
-            Some(NetQuery::Exact(net)) => Box::new(self.exact(&net).map(|x| (*net, x)).into_iter()),
-            Some(NetQuery::MostSpecific(net)) => Box::new(self.longest_match(&net).into_iter()),
-            Some(NetQuery::Contains(net)) => Box::new(self.matches(&net)),
-            Some(NetQuery::OrLonger(net)) => Box::new(self.or_longer(&net)),
+            Some(NetQuery::Exact(net)) => Box::new(self.exact(net).map(|x| (*net, x)).into_iter()),
+            Some(NetQuery::MostSpecific(net)) => Box::new(self.longest_match(net).into_iter()),
+            Some(NetQuery::Contains(net)) => Box::new(self.matches(net)),
+            Some(NetQuery::OrLonger(net)) => Box::new(self.or_longer(net)),
         };
         Box::new(iter.flat_map(move |(net, routes)| {
             routes

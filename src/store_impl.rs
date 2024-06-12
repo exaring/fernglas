@@ -191,7 +191,7 @@ impl Store for InMemoryStore {
                     let clients = clients.clone();
                     let sessions = sessions.clone();
                     async move {
-                        let client = match clients.lock().unwrap().get(&table.client_addr()) {
+                        let client = match clients.lock().unwrap().get(table.client_addr()) {
                             Some(v) => v.clone(),
                             None => {
                                 warn!("client is not connected");
@@ -199,7 +199,7 @@ impl Store for InMemoryStore {
                             }
                         };
                         let session = table.session_id().and_then(|session_id| {
-                            sessions.lock().unwrap().get(&session_id).cloned()
+                            sessions.lock().unwrap().get(session_id).cloned()
                         });
 
                         Some(QueryResult {

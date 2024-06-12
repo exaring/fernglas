@@ -271,7 +271,7 @@ async fn query<T: Store>(
                 }
             }
             if let Some(asn_dns_zone) = &cfg.asn_dns_zone {
-                for asn in route.attrs.as_path.into_iter().flat_map(|x| x) {
+                for asn in route.attrs.as_path.into_iter().flatten() {
                     if have_asn.insert(asn) {
                         let resolver = resolver.clone();
                         let asn_dns_zone = asn_dns_zone.clone();
@@ -286,10 +286,7 @@ async fn query<T: Store>(
                                             .next()
                                             .and_then(|data| std::str::from_utf8(data).ok())
                                             .and_then(|s| {
-                                                s.split(" | ")
-                                                    .skip(4)
-                                                    .next()
-                                                    .map(|name| name.to_string())
+                                                s.split(" | ").nth(4).map(|name| name.to_string())
                                             })
                                     })
                                 })
@@ -298,7 +295,7 @@ async fn query<T: Store>(
                     }
                 }
             }
-            for community in route.attrs.communities.into_iter().flat_map(|x| x) {
+            for community in route.attrs.communities.into_iter().flatten() {
                 if have_community.insert(community) {
                     let community_str = format!("{}:{}", community.0, community.1);
                     if let Some(lookup) = community_lists.regular.lookup(&community_str) {
@@ -311,7 +308,7 @@ async fn query<T: Store>(
                     }
                 }
             }
-            for large_community in route.attrs.large_communities.into_iter().flat_map(|x| x) {
+            for large_community in route.attrs.large_communities.into_iter().flatten() {
                 if have_large_community.insert(large_community) {
                     let large_community_str = format!(
                         "{}:{}:{}",
@@ -330,7 +327,7 @@ async fn query<T: Store>(
 
             futures
         })
-        .filter_map(|x| futures_util::future::ready(x))
+        .filter_map(futures_util::future::ready)
         .map(|result| {
             let json = serde_json::to_string(&result).unwrap();
             Ok::<_, Infallible>(format!("{}\n", json))
