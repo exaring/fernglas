@@ -50,7 +50,7 @@ pub async fn run_peer(
         .or(open_message.caps.iter().find_map(|x| {
             if let BgpCapability::CapFQDN(hostname, domainname) = x {
                 let mut name = hostname.to_string();
-                if domainname != "" {
+                if domainname.is_empty() {
                     name = format!("{}.{}", name, domainname);
                 }
                 Some(name)
