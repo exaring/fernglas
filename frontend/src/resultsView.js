@@ -93,15 +93,15 @@ const processResults = (results) => {
 	// stage 1, combine pre- and post-policy adj-in tables
 	// start out with PostPolicy
 	const preAndPostPolicy = {};
-	const preAndPostPolicyKey = route => `${route.from_client}:${route.peer_address}:${route.net}`;
+	const preAndPostPolicyKey = route => `${route.session_id.from_client}:${route.session_id.peer_address}:${route.net}`;
 	for (let route of routeResults) {
-		if (route.table === "PostPolicyAdjIn") {
+		if (route.type === "PostPolicyAdjIn") {
 			preAndPostPolicy[preAndPostPolicyKey(route)] = route;
 		}
 	}
 	// add routes which are _only_ in PrePolicy => have not been accepted
 	for (let route of routeResults) {
-		if (route.table === "PrePolicyAdjIn") {
+		if (route.type === "PrePolicyAdjIn") {
 			const key = preAndPostPolicyKey(route);
 			if (!preAndPostPolicy[key]) {
 				preAndPostPolicy[key] = route;
@@ -173,7 +173,7 @@ export const resultsView = async (query) => {
 
 	const param_router = searchParams.get("Router");
 	if (param_router !== null) {
-		searchParams.set("Router", Object.values(routers).find(router => router.client_name == param_router).router_id);
+		searchParams.set("Router", routers.find(router => router[1].client_name == param_router)[1].router_id);
 	}
 
 	render(resultsTemplate(query, { routeResults: [], as_names: {} }, false), document.getElementById('content'));

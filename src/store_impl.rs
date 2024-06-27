@@ -7,6 +7,7 @@ use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use regex::Regex;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use std::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::compressed_attrs::*;
+use crate::route_distinguisher::RouteDistinguisher;
 use crate::store::*;
 use crate::table_impl::*;
 
@@ -117,13 +119,15 @@ impl Store for InMemoryStore {
     }
 
     fn get_routes(&self, query: Query) -> Pin<Box<dyn Stream<Item = QueryResult> + Send>> {
-        let tables = match query.table_query {
+        let mut tables = match query.table_query {
             Some(TableQuery::Table(table)) => vec![(table.clone(), self.get_table(table))],
             Some(TableQuery::Client(client_addr)) => self.get_tables_for_client(&client_addr),
             Some(TableQuery::Router(router_id)) => self.get_tables_for_router(&router_id),
             Some(TableQuery::Session(session_id)) => self.get_tables_for_session(&session_id),
             None => self.tables.lock().unwrap().clone().into_iter().collect(),
         };
+
+        tables.retain(|table| table.0.route_distinguisher == query.route_distinguisher);
 
         let mut nets_filter_fn: Box<
             dyn Fn(&(TableSelector, IpNet, Arc<CompressedRouteAttrs>)) -> bool + Send + Sync,
@@ -214,6 +218,18 @@ impl Store for InMemoryStore {
 
     fn get_routers(&self) -> HashMap<SocketAddr, Client> {
         self.clients.lock().unwrap().clone()
+    }
+
+    fn get_routing_instances(&self) -> HashMap<SocketAddr, HashSet<RouteDistinguisher>> {
+        let tables = self.tables.lock().unwrap().clone();
+        let mut hm = HashMap::new();
+        for table_selector in tables.into_keys() {
+            hm.entry(table_selector.session_id.from_client)
+                .or_insert(HashSet::new())
+                .insert(table_selector.route_distinguisher);
+        }
+
+        hm
     }
 
     async fn client_up(

@@ -226,6 +226,7 @@ async fn query<T: Store>(
         net_query,
         limits: query.limits,
         as_path_regex: query.as_path_regex,
+        route_distinguisher: query.route_distinguisher,
     };
 
     let mut limits = query.limits.take().unwrap_or(cfg.query_limits.clone());
@@ -342,6 +343,18 @@ async fn routers<T: Store>(State(AppState { store, .. }): State<AppState<T>>) ->
     serde_json::to_string(&store.get_routers()).unwrap()
 }
 
+async fn routing_instances<T: Store>(
+    State(AppState { store, .. }): State<AppState<T>>,
+) -> impl IntoResponse {
+    let instances = store
+        .get_routing_instances()
+        .into_iter()
+        .map(|(k, v)| (k, v.into_iter().map(|v| (v, v)).collect::<Vec<_>>()))
+        .collect::<HashMap<_, _>>();
+
+    serde_json::to_string(&instances).unwrap()
+}
+
 async fn make_api<T: Store>(cfg: ApiServerConfig, store: T) -> anyhow::Result<Router> {
     let resolver = {
         let (rcfg, mut ropts) = hickory_resolver::system_conf::read_system_conf()?;
@@ -361,6 +374,7 @@ async fn make_api<T: Store>(cfg: ApiServerConfig, store: T) -> anyhow::Result<Ro
     Ok(Router::new()
         .route("/query", get(query::<T>))
         .route("/routers", get(routers::<T>))
+        .route("/routing-instances", get(routing_instances::<T>))
         .with_state(AppState {
             cfg: Arc::new(cfg),
             resolver,
