@@ -3,7 +3,7 @@ use futures_util::Stream;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use log::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use zettabgp::prelude::{BgpAddrV4, BgpAddrV6};
@@ -133,6 +133,8 @@ pub struct Query<T = IpNet> {
     pub limits: Option<QueryLimits>,
     #[serde(default)]
     pub as_path_regex: Option<String>,
+    #[serde(default)]
+    pub route_distinguisher: RouteDistinguisher,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,6 +193,8 @@ pub trait Store: Clone + Send + Sync + 'static {
     fn get_routes(&self, query: Query) -> Pin<Box<dyn Stream<Item = QueryResult> + Send>>;
 
     fn get_routers(&self) -> HashMap<SocketAddr, Client>;
+
+    fn get_routing_instances(&self) -> HashMap<SocketAddr, HashSet<RouteDistinguisher>>;
 
     async fn client_up(
         &self,
