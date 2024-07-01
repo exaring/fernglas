@@ -1,5 +1,6 @@
 use crate::bgpdumper::BgpDumper;
-use crate::store::{Client, RouteState, Store, TableSelector};
+use crate::route_distinguisher::RouteDistinguisher;
+use crate::store::{Client, RouteState, SessionId, Store, TableSelector, TableType};
 use futures_util::future::join_all;
 use futures_util::{pin_mut, StreamExt};
 use log::*;
@@ -23,6 +24,8 @@ pub async fn run_peer(
     let mut caps = vec![
         BgpCapability::SafiIPv4u,
         BgpCapability::SafiIPv6u,
+        BgpCapability::SafiVPNv4u,
+        BgpCapability::SafiVPNv6u,
         BgpCapability::CapRR,
         BgpCapability::CapASN32(cfg.asn),
     ];
@@ -30,6 +33,8 @@ pub async fn run_peer(
         caps.push(BgpCapability::CapAddPath(vec![
             BgpCapAddPath::new_from_cap(BgpCapability::SafiIPv4u, true, true).unwrap(),
             BgpCapAddPath::new_from_cap(BgpCapability::SafiIPv6u, true, true).unwrap(),
+            BgpCapAddPath::new_from_cap(BgpCapability::SafiVPNv4u, true, true).unwrap(),
+            BgpCapAddPath::new_from_cap(BgpCapability::SafiVPNv6u, true, true).unwrap(),
         ]));
     }
 
@@ -73,9 +78,15 @@ pub async fn run_peer(
         };
         store
             .insert_bgp_update(
-                TableSelector::LocRib {
-                    from_client: client_addr,
-                    route_state: cfg.route_state,
+                TableSelector {
+                    session_id: SessionId {
+                        from_client: client_addr,
+                        peer_address: client_addr.ip(),
+                    },
+                    table_type: TableType::LocRib {
+                        route_state: cfg.route_state,
+                    },
+                    route_distinguisher: RouteDistinguisher::Default,
                 },
                 update,
             )
@@ -90,6 +101,7 @@ pub struct PeerConfig {
     pub name_override: Option<String>,
     pub route_state: RouteState,
     pub add_path: bool,
+    pub route_distinguisher: Option<RouteDistinguisher>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

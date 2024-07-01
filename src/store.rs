@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
+use zettabgp::prelude::{BgpAddrV4, BgpAddrV6};
 
 use crate::route_distinguisher::RouteDistinguisher;
 
@@ -324,48 +325,56 @@ fn bgp_addrs_to_nets(
             .iter()
             .filter_map(|addr| {
                 let WithPathId { pathid, nlri } = addr;
-                match Ipv4Net::new(nlri.addr, nlri.prefixlen) {
-                    Ok(net) => Some((RouteDistinguisher::Default, *pathid, IpNet::V4(net))),
-                    Err(_) => {
-                        warn!("invalid BgpAddrs prefixlen");
-                        None
-                    }
-                }
+                bgpv4addr_to_ipnet(nlri).map(|net| (RouteDistinguisher::Default, *pathid, net))
             })
             .collect(),
         BgpAddrs::IPV6UP(ref addrs) => addrs
             .iter()
             .filter_map(|addr| {
                 let WithPathId { pathid, nlri } = addr;
-                match Ipv6Net::new(nlri.addr, nlri.prefixlen) {
-                    Ok(net) => Some((RouteDistinguisher::Default, *pathid, IpNet::V6(net))),
-                    Err(_) => {
-                        warn!("invalid BgpAddrs prefixlen");
-                        None
-                    }
-                }
+                bgpv6addr_to_ipnet(nlri).map(|net| (RouteDistinguisher::Default, *pathid, net))
             })
             .collect(),
         BgpAddrs::IPV4U(ref addrs) => addrs
             .iter()
-            .filter_map(|addr| match Ipv4Net::new(addr.addr, addr.prefixlen) {
-                Ok(net) => Some((RouteDistinguisher::Default, 0, IpNet::V4(net))),
-                Err(_) => {
-                    warn!("invalid BgpAddrs prefixlen");
-                    None
-                }
-            })
+            .filter_map(|addr| bgpv4addr_to_ipnet(addr).map(|net| (RouteDistinguisher::Default, 0, net)))
             .collect(),
         BgpAddrs::IPV6U(ref addrs) => addrs
             .iter()
-            .filter_map(|addr| match Ipv6Net::new(addr.addr, addr.prefixlen) {
-                Ok(net) => Some((RouteDistinguisher::Default, 0, IpNet::V6(net))),
-                Err(_) => {
-                    warn!("invalid BgpAddrs prefixlen");
-                    None
-                }
+            .filter_map(|addr| bgpv6addr_to_ipnet(addr).map(|net| (RouteDistinguisher::Default, 0, net)))
+            .collect(),
+        BgpAddrs::VPNV4U(ref addrs) => addrs
+            .iter()
+            .filter_map(|labeled| {
+                let rd = RouteDistinguisher::try_from(labeled.prefix.rd.clone())
+                    .inspect_err(|_| warn!("invalid Bgp Route distinguisher"))
+                    .ok()?;
+                bgpv4addr_to_ipnet(&labeled.prefix.prefix).map(|net| (rd, 0, net))
+            })
+            .collect(),
+        BgpAddrs::VPNV6U(ref addrs) => addrs
+            .iter()
+            .filter_map(|labeled| {
+                let rd = RouteDistinguisher::try_from(labeled.prefix.rd.clone())
+                    .inspect_err(|_| warn!("invalid Bgp Route distinguisher"))
+                    .ok()?;
+                bgpv6addr_to_ipnet(&labeled.prefix.prefix).map(|net| (rd, 0, net))
             })
             .collect(),
         _ => vec![],
     }
+}
+
+fn bgpv4addr_to_ipnet(addr: &BgpAddrV4) -> Option<IpNet> {
+    Ipv4Net::new(addr.addr, addr.prefixlen)
+        .inspect_err(|_| warn!("invalid BgpAddrs prefixlen"))
+        .map(IpNet::V4)
+        .ok()
+}
+
+fn bgpv6addr_to_ipnet(addr: &BgpAddrV6) -> Option<IpNet> {
+    Ipv6Net::new(addr.addr, addr.prefixlen)
+        .inspect_err(|_| warn!("invalid BgpAddrs prefixlen"))
+        .map(IpNet::V6)
+        .ok()
 }
