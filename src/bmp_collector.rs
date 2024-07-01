@@ -1,4 +1,5 @@
-use crate::store::{Client, RouteState, Session, SessionId, Store, TableSelector};
+use crate::route_distinguisher::RouteDistinguisher;
+use crate::store::{Client, RouteState, Session, SessionId, Store, TableSelector, TableType};
 use bitvec::prelude::Msb0;
 use bitvec::view::BitView;
 use futures_util::future::join_all;
@@ -19,21 +20,29 @@ fn table_selector_for_peer(
     client_addr: SocketAddr,
     peer: &BmpMessagePeerHeader,
 ) -> Option<TableSelector> {
-    match (peer.peertype, peer.flags.view_bits::<Msb0>()[1]) {
-        (0, false) => Some(TableSelector::PrePolicyAdjIn(SessionId {
-            from_client: client_addr,
-            peer_address: peer.peeraddress,
-        })),
-        (0, true) => Some(TableSelector::PostPolicyAdjIn(SessionId {
-            from_client: client_addr,
-            peer_address: peer.peeraddress,
-        })),
-        (3, _) => Some(TableSelector::LocRib {
-            from_client: client_addr,
+    let table_type = match (peer.peertype, peer.flags.view_bits::<Msb0>()[1]) {
+        (0, false) | (1, false) => TableType::PrePolicyAdjIn,
+        (0, true) | (1, true) => TableType::PostPolicyAdjIn,
+        (3, _) => TableType::LocRib {
             route_state: RouteState::Selected,
-        }),
-        _ => None,
-    }
+        },
+        _ => return None,
+    };
+
+    let route_distinguisher = RouteDistinguisher::try_from(peer.peerdistinguisher.clone())
+        .inspect_err(|e| {
+            warn!("Received unsupported route distinguisher type {e} from {client_addr}")
+        })
+        .ok()?;
+
+    Some(TableSelector {
+        route_distinguisher,
+        table_type,
+        session_id: SessionId {
+            from_client: client_addr,
+            peer_address: peer.peeraddress,
+        },
+    })
 }
 
 async fn process_route_monitoring(

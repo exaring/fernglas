@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 
+use crate::route_distinguisher::RouteDistinguisher;
+
 pub type PathId = u32;
 pub type RouterId = Ipv4Addr;
 
@@ -47,39 +49,58 @@ pub enum RouteState {
     Selected,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[serde(tag = "table")]
-pub enum TableSelector {
-    PrePolicyAdjIn(SessionId),
-    PostPolicyAdjIn(SessionId),
+pub enum TableType {
+    PrePolicyAdjIn,
+    PostPolicyAdjIn,
     LocRib {
-        from_client: SocketAddr,
         #[serde(skip_serializing)]
         route_state: RouteState,
     },
 }
 
+impl Serialize for TableType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let table_type = match self {
+            TableType::PrePolicyAdjIn => "PrePolicyAdjIn",
+            TableType::PostPolicyAdjIn => "PostPolicyAdjIn",
+            TableType::LocRib { .. } => "LocRib",
+        };
+
+        serializer.serialize_str(table_type)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TableSelector {
+    // None equal default Routing Instance
+    #[serde(skip_serializing_if = "RouteDistinguisher::is_default")]
+    pub route_distinguisher: RouteDistinguisher,
+    pub session_id: SessionId,
+    #[serde(rename = "type")]
+    pub table_type: TableType,
+}
+
 impl TableSelector {
     pub fn client_addr(&self) -> &SocketAddr {
-        match self {
-            TableSelector::LocRib { from_client, .. } => from_client,
-            TableSelector::PostPolicyAdjIn(session) => &session.from_client,
-            TableSelector::PrePolicyAdjIn(session) => &session.from_client,
-        }
+        &self.session_id.from_client
     }
     pub fn session_id(&self) -> Option<&SessionId> {
-        match self {
-            TableSelector::LocRib { .. } => None,
-            TableSelector::PostPolicyAdjIn(session) => Some(session),
-            TableSelector::PrePolicyAdjIn(session) => Some(session),
+        match self.table_type {
+            TableType::LocRib { .. } => None,
+            _ => Some(&self.session_id),
         }
     }
     pub fn route_state(&self) -> RouteState {
-        match self {
-            TableSelector::LocRib { route_state, .. } => *route_state,
-            TableSelector::PostPolicyAdjIn(_) => RouteState::Accepted,
-            TableSelector::PrePolicyAdjIn(_) => RouteState::Seen,
+        match self.table_type {
+            TableType::LocRib { route_state, .. } => route_state,
+            TableType::PostPolicyAdjIn => RouteState::Accepted,
+            TableType::PrePolicyAdjIn => RouteState::Seen,
         }
     }
 }
@@ -260,19 +281,43 @@ pub trait Store: Clone + Send + Sync + 'static {
             withdraw_nets.push(net);
         }
 
-        for (net, nexthop) in update_nets {
+        for ((mut rd, path, prefix), nexthop) in update_nets {
+            if rd.is_default() {
+                rd = session.route_distinguisher
+            }
             let mut attrs = attrs.clone();
             attrs.nexthop = nexthop;
-            self.update_route(net.0, net.1, session.clone(), attrs)
-                .await;
+            self.update_route(
+                path,
+                prefix,
+                TableSelector {
+                    route_distinguisher: rd,
+                    ..session.clone()
+                },
+                attrs,
+            )
+            .await;
         }
-        for net in withdraw_nets {
-            self.withdraw_route(net.0, net.1, session.clone()).await;
+        for (mut rd, path, prefix) in withdraw_nets {
+            if rd.is_default() {
+                rd = session.route_distinguisher
+            }
+            self.withdraw_route(
+                path,
+                prefix,
+                TableSelector {
+                    route_distinguisher: rd,
+                    ..session.clone()
+                },
+            )
+            .await;
         }
     }
 }
 
-fn bgp_addrs_to_nets(addrs: &zettabgp::prelude::BgpAddrs) -> Vec<(PathId, IpNet)> {
+fn bgp_addrs_to_nets(
+    addrs: &zettabgp::prelude::BgpAddrs,
+) -> Vec<(RouteDistinguisher, PathId, IpNet)> {
     use zettabgp::prelude::*;
     match addrs {
         BgpAddrs::IPV4UP(ref addrs) => addrs
@@ -280,7 +325,7 @@ fn bgp_addrs_to_nets(addrs: &zettabgp::prelude::BgpAddrs) -> Vec<(PathId, IpNet)
             .filter_map(|addr| {
                 let WithPathId { pathid, nlri } = addr;
                 match Ipv4Net::new(nlri.addr, nlri.prefixlen) {
-                    Ok(net) => Some((*pathid, IpNet::V4(net))),
+                    Ok(net) => Some((RouteDistinguisher::Default, *pathid, IpNet::V4(net))),
                     Err(_) => {
                         warn!("invalid BgpAddrs prefixlen");
                         None
@@ -293,7 +338,7 @@ fn bgp_addrs_to_nets(addrs: &zettabgp::prelude::BgpAddrs) -> Vec<(PathId, IpNet)
             .filter_map(|addr| {
                 let WithPathId { pathid, nlri } = addr;
                 match Ipv6Net::new(nlri.addr, nlri.prefixlen) {
-                    Ok(net) => Some((*pathid, IpNet::V6(net))),
+                    Ok(net) => Some((RouteDistinguisher::Default, *pathid, IpNet::V6(net))),
                     Err(_) => {
                         warn!("invalid BgpAddrs prefixlen");
                         None
@@ -304,7 +349,7 @@ fn bgp_addrs_to_nets(addrs: &zettabgp::prelude::BgpAddrs) -> Vec<(PathId, IpNet)
         BgpAddrs::IPV4U(ref addrs) => addrs
             .iter()
             .filter_map(|addr| match Ipv4Net::new(addr.addr, addr.prefixlen) {
-                Ok(net) => Some((0, IpNet::V4(net))),
+                Ok(net) => Some((RouteDistinguisher::Default, 0, IpNet::V4(net))),
                 Err(_) => {
                     warn!("invalid BgpAddrs prefixlen");
                     None
@@ -314,7 +359,7 @@ fn bgp_addrs_to_nets(addrs: &zettabgp::prelude::BgpAddrs) -> Vec<(PathId, IpNet)
         BgpAddrs::IPV6U(ref addrs) => addrs
             .iter()
             .filter_map(|addr| match Ipv6Net::new(addr.addr, addr.prefixlen) {
-                Ok(net) => Some((0, IpNet::V6(net))),
+                Ok(net) => Some((RouteDistinguisher::Default, 0, IpNet::V6(net))),
                 Err(_) => {
                     warn!("invalid BgpAddrs prefixlen");
                     None
