@@ -22,7 +22,6 @@ pub struct InMemoryStore {
     clients: Arc<Mutex<HashMap<SocketAddr, Client>>>,
     sessions: Arc<Mutex<HashMap<SessionId, Session>>>,
     tables: Arc<Mutex<HashMap<TableSelector, InMemoryTable>>>,
-
     caches: Arc<Mutex<Caches>>,
 }
 
@@ -31,11 +30,13 @@ fn tables_for_client_fn(
 ) -> impl Fn(&(&TableSelector, &InMemoryTable)) -> bool + '_ {
     move |(k, _): &(_, _)| k.client_addr() == query_from_client
 }
+
 fn tables_for_session_fn(
     session_id: &SessionId,
 ) -> impl Fn(&(&TableSelector, &InMemoryTable)) -> bool + '_ {
     move |(k, _): &(_, _)| k.session_id() == Some(session_id)
 }
+
 impl InMemoryStore {
     fn tables_for_router_fn<'a>(
         &self,
@@ -196,6 +197,7 @@ impl Store for InMemoryStore {
                         let session = table.session_id().and_then(|session_id| {
                             sessions.lock().unwrap().get(&session_id).cloned()
                         });
+
                         Some(QueryResult {
                             state: table.route_state(),
                             net,
