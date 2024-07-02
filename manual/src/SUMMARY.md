@@ -10,5 +10,6 @@
 - [Configuration](./configuration/README.md)
   - [Junos using BMP](./configuration/bmp-junos.md)
   - [bird2 using BGP](./configuration/bgp-bird2.md)
+  - [VRF/Routing-Instances](./configuration/routing-instances.md)
 - [Appendix](./appendix/README.md)
   - [NixOS specialArgs pattern](./appendix/nixos-specialArgs-pattern.md)
