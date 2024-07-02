@@ -57,3 +57,4 @@ Valid options for BGP peer config:
 - `asn` (required): AS Number advertised to peer
 - `router_id` (required): Router ID advertised to peer
 - `name_override` (optional): Use this string instead of the hostname advertised in the [BGP hostname capability](https://www.ietf.org/archive/id/draft-walton-bgp-hostname-capability-02.txt)
+- `route_distinguisher` (optional): Routes belonging to this route-distinguisher are advertised in the default table. See [VRF/Routing-Instances](./routing-instances.md) for more information
